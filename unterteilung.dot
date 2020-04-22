@@ -1,0 +1,32 @@
+
+
+digraph G {
+
+    subgraph cluster0 {
+        label = "Modell";
+        
+        Mob [shape=record,label="{ <name> Bewegliches Objekt |<speed> bekomme geschwindigkeit|<rot> bekomme rotationsgeschwindigkeit|<pos> bekomme position }"];
+        Actor [shape=record,label="{ <name> Raumschiff |<links> rotiere nach links|<rechts> rotiere nach rechts|<schub> schub|<shoot> schießen}"];
+        
+        Mob -> Actor [dir=none];
+    }
+
+    subgraph cluster1 {
+        label = "Anzeige";
+
+        MobSprite [shape=record,label="{ <name> Mob Sprite|<set_img> lege Bild fest|<draw> male bild von Modell}"];
+    }
+
+    subgraph cluster3 {
+        label = "Kontrolle";
+
+        Player [shape=record,label="{ <name> Spieler|<links> bei Pfeil links|<rechts> bei Pfeil rechts|<oben> bei Pfeil oben|<space> bei Space }"];
+    }
+    
+    Mob:name -> MobSprite:draw;
+    Actor:name -> MobSprite:draw;
+    Player:links -> Actor:links;
+    Player:rechts -> Actor:rechts;
+    Player:oben -> Actor:schub;
+    Player:space -> Actor:shoot;
+}
