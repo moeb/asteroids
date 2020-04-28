@@ -6,7 +6,8 @@ import pymunk
 import pyglet
 from pyglet import gl
 from pyglet.window import key
-from pyglet.graphics import Batch, TextureGroup
+from pyglet.graphics import Batch
+from pyglet.sprite import Sprite
 
 def main():
     # the entry point of the game
@@ -25,17 +26,10 @@ def main():
     # (most probably unneeded)
     world.gravity = (0.0, 0.0);
 
-
-    # this is a spaceship model wich is not yet controlled
-    spaceship = Spaceship(world, width, height)
-    # the spaceship has two views
-    # the normal view and when it is accelerated
-    ship_view = SpriteView("images/spaceship.png")
-    ship_accel = SpriteView("images/spaceship_thrust.png")
-
-    # the player controls if the spaceship is accelerating or not
-    # so it has to change how the ship is shown
-    player = Player(spaceship, ship_view, ship_accel)
+    # mid of the screen
+    mid = (width/2, height/2)
+    # the player controlls a spaceship
+    player = Player(world)
     # the player is an event-handler for the Window class of pyglet
     # where it gets it's keyboard events
     window.push_handlers(player)
@@ -48,6 +42,14 @@ def main():
     @window.event
     def on_draw():
         window.clear()
+        # move world space, so the spaceship is in the middle
+        gl.glLoadIdentity()
+        pos = player.position
+        x = mid[0]-pos[0]
+        y = mid[1]-pos[1]
+        z = 0
+        print(x,y)
+        gl.glTranslatef(x, y, z)
         # every view is registered with View
         # so View.draw draws everything
         View.draw()
@@ -72,12 +74,12 @@ class Spaceship:
     Spaceship model
     the 'real' thing, not that image we see ;)
     """
-    def __init__(self, world, width, height, mass=10, radius=75, accel=100000, rotaccel=100):
+    def __init__(self, world, pos, mass=10, radius=75, accel=1000, rotaccel=1000):
         self.world = world
         moment = pymunk.moment_for_circle(mass, 0, radius)
         self.body = pymunk.Body(mass, moment)
         # always start at the middle of the screen
-        self.body.position = (width/2, height/2)
+        self.body.position = pos
         # this spaceship seems to be long and pointy
         # but is in fact a circle ;)
         self.shape = pymunk.Circle(self.body, radius)
@@ -87,43 +89,46 @@ class Spaceship:
         self._accel = accel
         # rotational acceleration per second
         self._rotaccel = rotaccel
+        # rotation offset (how the spaceship diverges from the view)
+        self._rotoff = -math.pi/4
 
     def remove(self):
         self.world.remove(self.body)
 
     def accelerate(self, dt):
-        f = dt * self._accel
-        x = math.cos(self.body.angle)*f
-        y = math.sin(self.body.angle)*f
-        self.body.apply_force_at_local_point((x,y),(0,0))
+        self.body.apply_impulse_at_local_point((0,dt*self._accel))
 
     def rotate_left(self, dt):
-        self.body.angle -= dt*self._rotaccel
+        self.body.apply_impulse_at_local_point((0,dt*self._rotaccel), (150,0))
 
     def rotate_right(self, dt):
-        self.body.angle += dt*self._rotaccel
+        self.body.apply_impulse_at_local_point((0,dt*self._rotaccel), (-150,0))
 
 class Player:
     """
     Player controlled Spaceship :)
     """
 
-    def __init__(self, spaceship, ship_view, ship_accel):
+    def __init__(self, world):
         # controll  state
         self._rot_left = False
         self._rot_right = False
         self._shoots = False
         self._accels = False
 
-        # spaceship model
-        self._spaceship = spaceship
-        # normal view of the spaceship
-        self._ship_view = ship_view
-        # view of spaceship while accelerating
-        self._ship_accel = ship_accel
+        # this is a spaceship model
+        # start in the middle of the screen
+        self._spaceship = Spaceship(world, (0,0))
+        # the spaceship has two views
+        # the normal view and when it is accelerated
+        self._ship_view = SpriteView("images/spaceship.png")
+        self._ship_accel = SpriteView("images/spaceship_thrust.png")
         # ship is currently unaccelerated
         self._ship_view.register(self._spaceship)
 
+    @property
+    def position(self):
+        return tuple(self._spaceship.body.position)
 
     def on_key_press(self, symbol, modifiers):
         """
@@ -194,55 +199,24 @@ class View:
 class SpriteView(View):
     def __init__(self, img_path):
         View.__init__(self)
-        self._batch = Batch()
         self._image = pyglet.image.load(img_path)
-        self._texture = self._image.get_texture()
-        self._group = TextureGroup(self._texture)
+        self._image.anchor_x = self._image.width//2
+        self._image.anchor_y = self._image.height//2
         self._model_map = {}
-       
-        # size of quad without rotation
-        self._r = self._image.width/2
-        self._l = -self._r
-        self._t = self._image.height/2
-        self._b = -self._t
-
-    def _calculate_quad(self, model):
-        """
-        better do this than draw every
-        rotated sprite alone
-
-        can be further optimized with a shader
-        """
-        r = model.body.angle
-        d = model.shape.radius
-        x,y = model.body.position
-        pi4 = math.pi / 4
-        pi34 = pi4*3
-        rlb = r-pi34
-        rrb = r+pi34
-        rrt = r+pi4
-        rlt = r-pi4
-        return (
-            math.cos(rlb)*d+x, math.sin(rlb)*d+y,
-            math.cos(rrb)*d+x, math.sin(rrb)*d+y,
-            math.cos(rrt)*d+x, math.sin(rrt)*d+y,
-            math.cos(rlt)*d+x, math.sin(rlt)*d+y
-        )
+        self._batch = Batch()
 
     def register(self, model):
-        self._model_map[model] = self._batch.add(4, gl.GL_QUADS, self._group,
-                                                 ('v2f/dynamic', [0]*8),
-                                                 ('t2f/static', (0, 0, 1, 0, 1, 1, 0, 1)))
+        x,y = model.body.position
+        self._model_map[model] = Sprite(self._image, x, y, batch=self._batch)
 
     def remove(self, model):
         self._model_map[model].delete()
         del self._model_map[model]
 
     def draw(self):
-        for m,v in self._model_map.items():
-            v.vertices = self._calculate_quad(m)
-            print(list(v.vertices))
-            #print(v.vertices)
+        for m,s in self._model_map.items():
+            x,y = m.body.position
+            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180)
         self._batch.draw()
 
 
