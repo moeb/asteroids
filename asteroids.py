@@ -383,7 +383,7 @@ class Asteroid(Model):
     Asteroid model
     the 'real' thing ;)
     """
-    def __init__(self, pos, force, mass=10, radius=75):
+    def __init__(self, pos, force, mass=10, radius=40):
         Model.__init__(self)
         moment = pymunk.moment_for_circle(mass, 0, radius)
         self.body = pymunk.Body(mass, moment)
@@ -407,7 +407,7 @@ class AsteroidSpammer:
     max_rot: offset for where to apply the initial force on the asteroid
     aps: asteroids per second (how many asteroids per second to spam ~)
     """
-    def __init__(self, world, screen_size, screen_offset=150, max_accel=5000, max_rot=150, aps=3):
+    def __init__(self, world, screen_size, screen_offset=150, max_accel=2500, max_rot=150, aps=3):
         self._world = world
         # circle around the screen
         # where asteroids may be created
@@ -425,7 +425,7 @@ class AsteroidSpammer:
         self._last_asteroid = 0
         # asteroids register and view
         self._asteroids = []
-        self._asteroid_view = SpriteView("images/asteroid.png")
+        self._asteroid_view = SpriteView("images/asteroid.png", scale=0.6)
 
     def _create_asteroid(self):
         # direction from the ship, where
