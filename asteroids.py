@@ -24,11 +24,28 @@ def main():
     # create a window; opengl context inclusive
     window = pyglet.window.Window(*win_size);
 
+    # for the end we need a label and time played
+    # wich gets updated when world.done is called
+    score_view = ScoreView(win_size)
+
     # create the world space
     # (this part belongs/is to the model)
-    world = World(win_size, bounds)
-    # for the end we need a label and time played
-    score_view = ScoreView(win_size)
+    world = World(win_size, bounds, score_view)
+
+    # register models
+    world.register_model(Asteroid)
+    world.register_model(Bullet)
+    world.register_model(Spaceship)
+
+    # the player controls a spaceship
+    player = Player(world, win_size)
+    # the player is an event-handler for the Window class of pyglet
+    # where it gets it's keyboard events
+    window.push_handlers(player)
+
+    # the other controller is the AsteroidSpammer
+    # whose task is to spam Asteroids
+    asteroid_spammer = AsteroidSpammer(world, win_size)
 
     @world.collision_handler(Asteroid, Bullet)
     def begin(arbiter, space, data):
@@ -40,42 +57,23 @@ def main():
                 # collision handler gets called multiple times
                 # even after deletion it seems
                 # this is an error in pymunk/chipmunk
-                print(shape in space.shapes)
-                #pass
+                pass
         return False
-
 
     @world.collision_handler(Spaceship, Asteroid)
     def post_solve(arbiter, space, data):
         try:
             for shape in arbiter.shapes:
                 model, controller = world.get_by_shape(shape)
-                # create label with score
-                score_view.show_score()
-                # stop time
+                # stop game
                 world.done = True
         except KeyError:
             pass
-
-    # the player controls a spaceship
-    player = Player(world)
-    # the player is an event-handler for the Window class of pyglet
-    # where it gets it's keyboard events
-    window.push_handlers(player)
-    # the world needs the player for reference
-    world.register_player(player)
-
-    # the other controller is the AsteroidSpammer
-    # whose task is to spam Asteroids
-    # needs the player for reference
-    asteroid_spammer = AsteroidSpammer(world, win_size, player)
 
     # the window controls when it is drawn
     @window.event
     def on_draw():
         window.clear()
-        # move world space, so the spaceship is in the middle
-        world.translate()
         # every view is registered with View
         # so View.draw draws everything
         View.draw()
@@ -111,24 +109,39 @@ class World:
 
     dispatches events for collision handling
     """
-    def __init__(self, window_size, bounds):
+    def __init__(self, window_size, bounds, score_view):
         self._time = 0.0
         self._space = pymunk.Space()
         self._space.gravity = (0, 0)
         self._models = []
         self._shapes = {}
-        self._bounds = bounds
-        self._player = None
+
+        # bounds within objects may exist
+        self._left = -bounds
+        self._right = window_size[0]+bounds
+        self._bottom = -bounds
+        self._top = window_size[1]+bounds
+
         self._mid = (window_size[0]/2, window_size[1]/2)
         self._collision_handlers = {}
         # when the game is done
         # switch this boolean
-        self.done = False
+        self._done = False
+        # score view for end of game
+        self._score_view = score_view
 
-    def register_player(self, player):
-        self._player = player
+    @property
+    def done(self):
+        return self._done
 
-    def _register_model_type(self, model_type):
+    @done.setter
+    def done(self, done):
+        if self._done:
+            return
+        self._done = done
+        self._score_view.show_score()
+
+    def register_model(self, model_type):
         if model_type not in self._collision_handlers:
             self._collision_handlers[model_type] = len(self._collision_handlers)+1
             model_type.collision_type = len(self._collision_handlers)
@@ -140,8 +153,6 @@ class World:
         def pre_solve(arbiter, space, data):
             do_stuff()
         """
-        self._register_model_type(m1)
-        self._register_model_type(m2)
         # handler types from pymunk
         allowed_handler_types = [
             'pre_solve',
@@ -170,36 +181,22 @@ class World:
     def get_by_shape(self, shape):
         return self._shapes[shape]
 
+    def _delete_out_of_bounds(self):
+        # remove bodies wich are out of bounds
+        for model,controller in self._models:
+            x,y = model.body.position
+            if (x < self._left or x > self._right or \
+                y < self._bottom or y > self._top):
+                if type(model) == Spaceship:
+                    self.done = True
+                else: controller.delete(model)
+
     def step(self, dt):
         if self.done:
             # stop time
             return
-        # count up the playing time
-        # we could do this with one simple 
-        # minus operation but this is in fact easier 
-        # right now and i am lazy
-        self._time += dt
-
-        if not self._player:
-            raise RuntimeError("player not yet registered")
         self._space.step(dt)
-        # remove bodies wich are out of bounds
-        for model,controller in self._models:
-            mp = model.body.position
-            pp = self._player.position
-            xoff = abs(mp[0]-pp[0])
-            yoff = abs(mp[1]-pp[1])
-            # distance between ship and asteroid
-            d = math.hypot(xoff,yoff)
-            if d > self._bounds:
-                controller.delete(model)
-
-    def translate(self):
-        gl.glLoadIdentity()
-        pos = self._player.position
-        x = self._mid[0]-pos[0]
-        y = self._mid[1]-pos[1]
-        gl.glTranslatef(x, y, 0)
+        self._delete_out_of_bounds()
 
 class Model:
     collision_type = None
@@ -213,7 +210,7 @@ class Spaceship(Model):
     Spaceship model
     the 'real' thing, not that image we see ;)
     """
-    def __init__(self, pos, mass=10, radius=75, accel=1000, rotaccel=1000):
+    def __init__(self, pos, mass=10, radius=40, accel=1000, rotaccel=125):
         Model.__init__(self)
         moment = pymunk.moment_for_circle(mass, 0, radius)
         self.body = pymunk.Body(mass, moment)
@@ -268,7 +265,7 @@ class Player:
     bps: bullets per second
     """
 
-    def __init__(self, world, bps=4):
+    def __init__(self, world, win_size, bps=6):
         self._world = world
         # controll  state
         self._rot_left = False
@@ -278,13 +275,14 @@ class Player:
 
         # this is a spaceship model
         # start in the middle of the screen
-        self._spaceship = Spaceship((0,0))
+        w, h = win_size
+        self._spaceship = Spaceship((w/2, h/2), radius=30)
         # add spaceship to the world
         self._world.add(self._spaceship, self)
         # the spaceship has two views
         # the normal view and when it is accelerated
-        self._ship_view = SpriteView("images/spaceship.png")
-        self._ship_accel = SpriteView("images/spaceship_thrust.png")
+        self._ship_view = SpriteView("images/spaceship.png", scale=0.5)
+        self._ship_accel = SpriteView("images/spaceship_thrust.png", scale=0.5)
         # ship is currently unaccelerated
         self._ship_view.register(self._spaceship)
 
@@ -404,20 +402,20 @@ class AsteroidSpammer:
 
     world: pymunk world model
     screen_size: size of the window in pixels
-    player: player controller (for the coordinate of the player)
     screen_offset: the circle where to create asteroids
     max_accel: maximum initial asteroid acceleration
     max_rot: offset for where to apply the initial force on the asteroid
     aps: asteroids per second (how many asteroids per second to spam ~)
     """
-    def __init__(self, world, screen_size, player, screen_offset=150, max_accel=5000, max_rot=150, aps=3):
+    def __init__(self, world, screen_size, screen_offset=150, max_accel=5000, max_rot=150, aps=3):
         self._world = world
-        self._player = player
         # circle around the screen
         # where asteroids may be created
         self._radius = math.hypot(*screen_size)/2+screen_offset
         # limitation for asteroids to exist
         self._outer_r = self._radius + screen_offset
+        # mid of the screeen
+        self._mid = screen_size[0]/2, screen_size[1]/2
         # for every asteroid we need to generate
         # a force and rotation
         self._max_accel = max_accel
@@ -433,10 +431,9 @@ class AsteroidSpammer:
         # direction from the ship, where
         # the new asteroid becomes created
         angle = random.uniform(0, math.pi*2)
-        off = self._player.position
         # position the asteroid becomes created
-        x = math.cos(angle) * self._radius + off[0]
-        y = math.sin(angle) * self._radius + off[1]
+        x = math.cos(angle) * self._radius + self._mid[0]
+        y = math.sin(angle) * self._radius + self._mid[1]
         # direction where the asteroid is heading to
         # we invert the angle and add a little offset
         hpi = math.pi/2
@@ -467,6 +464,8 @@ class AsteroidSpammer:
         self._world.remove(model, self)
         self._asteroids.remove(model)
         self._asteroid_view.remove(model)
+        # we could spawn smaller asteroids here :)
+
 
 class View:
     """
@@ -484,11 +483,12 @@ class View:
             view.draw()
 
 class SpriteView(View):
-    def __init__(self, img_path):
+    def __init__(self, img_path, scale=1.0):
         View.__init__(self)
         self._image = pyglet.image.load(img_path)
         self._image.anchor_x = self._image.width//2
         self._image.anchor_y = self._image.height//2
+        self._scale = scale
         self._model_map = {}
         self._batch = Batch()
 
@@ -503,7 +503,7 @@ class SpriteView(View):
     def draw(self):
         for m,s in self._model_map.items():
             x,y = m.body.position
-            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180)
+            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180, scale=self._scale)
         self._batch.draw()
 
 class ScoreView:
