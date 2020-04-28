@@ -1,0 +1,4 @@
+cffi==1.14.0
+pycparser==2.20
+pyglet==1.5.4
+pymunk==5.6.0
