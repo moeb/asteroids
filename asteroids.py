@@ -213,25 +213,20 @@ class SpriteView(View):
 
         can be further optimized with a shader
         """
-        # TODO: fix rotation !
-        angle = model.body.angle
-        x = model.body.position.x
-        y = model.body.position.y
-        cos = math.cos(angle)
-        sin = math.sin(angle)
-        cl = cos * self._l
-        sl = sin * self._l
-        cb = cos * self._b
-        sb = sin * self._b
-        cr = cos * self._r
-        sr = sin * self._r
-        ct = cos * self._t
-        st = sin * self._t
+        r = model.body.angle
+        d = model.shape.radius
+        x,y = model.body.position
+        pi4 = math.pi / 4
+        pi34 = pi4*3
+        rlb = r-pi34
+        rrb = r+pi34
+        rrt = r+pi4
+        rlt = r-pi4
         return (
-            cl-sb+x, sl-cb+y,
-            cr-sb+x, sr-cb+y,
-            cr-st+x, sr-ct+y,
-            cl-st+x, st-ct+y
+            math.cos(rlb)*d+x, math.sin(rlb)*d+y,
+            math.cos(rrb)*d+x, math.sin(rrb)*d+y,
+            math.cos(rrt)*d+x, math.sin(rrt)*d+y,
+            math.cos(rlt)*d+x, math.sin(rlt)*d+y
         )
 
     def register(self, model):
@@ -246,6 +241,7 @@ class SpriteView(View):
     def draw(self):
         for m,v in self._model_map.items():
             v.vertices = self._calculate_quad(m)
+            print(list(v.vertices))
             #print(v.vertices)
         self._batch.draw()
 
