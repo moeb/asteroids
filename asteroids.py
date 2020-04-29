@@ -77,7 +77,9 @@ def main():
         # every view is registered with View
         # so View.draw draws everything
         View.draw()
-        # if there is a score:
+        # do not draw with View.draw
+        # because we loose control if it is draw
+        # over or under other images
         score_view.draw()
 
     # everything that needs to be done continually
@@ -152,6 +154,15 @@ class World:
         @world.collision_handler(Asteroid, Bullet)
         def pre_solve(arbiter, space, data):
             do_stuff()
+
+        allowed function names are:
+            pre_solve
+            post_solve
+            begin
+            separate
+
+        the function is expected to accept 3 inputs
+        namely: arbiter, space and data
         """
         # handler types from pymunk
         allowed_handler_types = [
