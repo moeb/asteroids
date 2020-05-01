@@ -4,6 +4,8 @@ import math
 import time
 import random
 
+from abc import ABC, abstractmethod, abstractproperty
+
 import pymunk
 import pyglet
 from pyglet import gl
@@ -94,6 +96,33 @@ def main():
     # lets run the app
     pyglet.app.run()
 
+
+class Model(ABC):
+    
+    @property
+    def collision_type(self):
+        if not self._collision_type:
+            raise RuntimeError("Model has not been registered with World")
+        return self._collision_type
+
+    @abstractproperty
+    def body(self):
+        pass
+
+    @abstractproperty
+    def shape(self):
+        pass
+
+
+class Controller(ABC):
+
+    @abstractmethod
+    def step(self, dt):
+        pass
+
+    @abstractmethod
+    def delete(self, model):
+        pass
 
 
 class World:
@@ -209,13 +238,6 @@ class World:
         self._delete_out_of_bounds()
 
 
-class Model:
-    collision_type = None
-
-    def __init__(self):
-        if not self.collision_type:
-            raise RuntimeError("model without collision type")
-
 class Spaceship(Model):
     """
     Spaceship model
@@ -224,14 +246,14 @@ class Spaceship(Model):
     def __init__(self, pos, mass=10, radius=40, accel=1000, rotaccel=125):
         Model.__init__(self)
         moment = pymunk.moment_for_circle(mass, 0, radius)
-        self.body = pymunk.Body(mass, moment)
+        self._body = pymunk.Body(mass, moment)
         # always start at the middle of the screen
-        self.body.position = pos
+        self._body.position = pos
         # this spaceship seems to be long and pointy
         # but is in fact a circle ;)
-        self.shape = pymunk.Circle(self.body, radius)
+        self._shape = pymunk.Circle(self.body, radius)
         # register collision handler
-        self.shape.collision_type = self.collision_type
+        self._shape.collision_type = self.collision_type
         # acceleration per second
         self._accel = accel
         # rotational acceleration per second
@@ -239,14 +261,22 @@ class Spaceship(Model):
         # rotation offset (how the spaceship diverges from the view)
         self._rotoff = -math.pi/4
 
+    @property
+    def body(self):
+        return self._body
+
+    @property
+    def shape(self):
+        return self._shape
+
     def accelerate(self, dt):
-        self.body.apply_impulse_at_local_point((0,dt*self._accel))
+        self._body.apply_impulse_at_local_point((0,dt*self._accel))
 
     def rotate_left(self, dt):
-        self.body.apply_impulse_at_local_point((0,dt*self._rotaccel), (150,0))
+        self._body.apply_impulse_at_local_point((0,dt*self._rotaccel), (150,0))
 
     def rotate_right(self, dt):
-        self.body.apply_impulse_at_local_point((0,dt*self._rotaccel), (-150,0))
+        self._body.apply_impulse_at_local_point((0,dt*self._rotaccel), (-150,0))
 
 
 class Bullet(Model):
@@ -256,20 +286,28 @@ class Bullet(Model):
     def __init__(self, pos, angle, mass=0.1, radius=1, force=1000):
         Model.__init__(self)
         moment = pymunk.moment_for_circle(mass, 0, radius)
-        self.body = pymunk.Body(mass, moment)
+        self._body = pymunk.Body(mass, moment)
         # the position gets calculated in the controll
         # because the spaceship turns
-        self.body.position = pos
+        self._body.position = pos
         # shape is a pretty little circle
-        self.shape = pymunk.Circle(self.body, radius)
+        self._shape = pymunk.Circle(self.body, radius)
         # register collision handler
-        self.shape.collision_type = self.collision_type
+        self._shape.collision_type = self.collision_type
         # rotate the bullet
-        self.body.angle = angle
+        self._body.angle = angle
         # shoot the bullet
-        self.body.apply_impulse_at_local_point((0,force))
+        self._body.apply_impulse_at_local_point((0,force))
 
-class Player:
+    @property
+    def body(self):
+        return self._body
+
+    @property
+    def shape(self):
+        return self._shape
+
+class Player(Controller):
     """
     Player controlled Spaceship :)
 
@@ -277,6 +315,7 @@ class Player:
     """
 
     def __init__(self, world, win_size, view, bps=6):
+        Controller.__init__(self)
         self._world = world
         self._view = view
         # controll  state
@@ -400,15 +439,23 @@ class Asteroid(Model):
     def __init__(self, pos, force, mass=10, radius=40):
         Model.__init__(self)
         moment = pymunk.moment_for_circle(mass, 0, radius)
-        self.body = pymunk.Body(mass, moment)
-        self.body.position = pos
-        self.shape = pymunk.Circle(self.body, radius)
+        self._body = pymunk.Body(mass, moment)
+        self._body.position = pos
+        self._shape = pymunk.Circle(self.body, radius)
         # register collision handler
-        self.shape.collision_type = self.collision_type
-        self.body.apply_impulse_at_local_point(*force)
-    
+        self._shape.collision_type = self.collision_type
+        self._body.apply_impulse_at_local_point(*force)
+   
+    @property
+    def body(self):
+        return self._body
 
-class AsteroidSpammer:
+    @property
+    def shape(self):
+        return self._shape
+
+
+class AsteroidSpammer(Controller):
     """
     the Asteroid Controller
     the main objective of an asteroid spammer
@@ -422,6 +469,7 @@ class AsteroidSpammer:
     aps: asteroids per second (how many asteroids per second to spam ~)
     """
     def __init__(self, world, screen_size, view, screen_offset=150, max_accel=2500, max_rot=150, aps=3):
+        Controller.__init__(self)
         self._world = world
         self._view = view
         # circle around the screen
