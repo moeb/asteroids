@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 
 import math
 import time
@@ -9,6 +9,7 @@ import pyglet
 from pyglet import gl
 from pyglet.window import key
 from pyglet.graphics import Batch
+from pyglet.graphics import OrderedGroup
 from pyglet.sprite import Sprite
 
 def main():
@@ -492,6 +493,73 @@ class View:
     def draw(self):
         for view in self._view_register:
             view.draw()
+
+class View:
+    """
+    handles everything graphical
+    """
+    # map of all loaded and modified images
+    _image_map = {}
+    # maps models to sprites for updating
+    _model2sprite = {}
+    # groups for drawing order
+    _draw_groups = {}
+    # we only need one batch
+    _batch = Batch()
+
+    @classmethod
+    def _get_group(cls, zindex):
+        # zindex must be an integer
+        assert type(zindex) is int
+        # create group if it does not exist
+        if zindex not in cls._draw_groups:
+            cls._draw_groups[zindex] = OrderedGroup(zindex)
+        return cls._draw_groups[zindex]
+
+    @classmethod
+    def _get_img(cls, path, scale):
+        # return value or create {} and return
+        imdct = cls._image_map.setdefault(path, {})
+        # create scaled image if it does not exist
+        if scale not in imdct:
+            imdct[scale] = pyglet.image.load(path)
+            imdct[scale].anchor_x = imdct[scale].width//2
+            imdct[scale].anchor_y = imdct[scale].width//2
+            imdct[scale].scale = scale
+        return imdct[scale]
+
+    @classmethod
+    def register_model(cls, model, path, scale=1.0, zindex=1):
+        # position of model is the position of the image
+        x,y = model.body.position
+        img = cls._get_img(path, scale)
+        group = cls._get_group(zindex)
+        cls._model2sprite[model] = Sprite(img, x, y, group=group, batch=cls._batch)
+
+    @classmethod
+    def remove_model(cls, model):
+        cls._model2sprite[model].delete()
+
+    @classmethod
+    def create_label(cls, text, zindex=9, **kwargs):
+        kwargs['text'] = text
+        kwargs['group'] = cls._get_group(zindex)
+        kwargs['batch'] = cls._batch
+        # the label may be destroyed at the whim of the controller
+        return pyglet.text.Label(**kwargs)
+
+    @classmethod
+    def _update_models(cls):
+        # update sprites with new positional and rotational data
+        for m,s in self._model2sprite.items():
+            x,y = m.body.position
+            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180, scale=self._scale)
+
+    @classmethod
+    def draw(cls):
+        cls._update_models()
+        cls._batch.draw()
+
 
 class SpriteView(View):
     def __init__(self, img_path, scale=1.0):
