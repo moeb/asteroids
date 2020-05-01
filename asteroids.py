@@ -25,13 +25,11 @@ def main():
     # create a window; opengl context inclusive
     window = pyglet.window.Window(*win_size);
 
-    # for the end we need a label and time played
-    # wich gets updated when world.done is called
-    score_view = ScoreView(win_size)
+    # handlesthe displaying of images and text
+    view = View()
 
     # create the world space
-    # (this part belongs/is to the model)
-    world = World(win_size, bounds, score_view)
+    world = World(win_size, bounds, view)
 
     # register models
     world.register_model(Asteroid)
@@ -39,14 +37,14 @@ def main():
     world.register_model(Spaceship)
 
     # the player controls a spaceship
-    player = Player(world, win_size)
+    player = Player(world, win_size, view)
     # the player is an event-handler for the Window class of pyglet
     # where it gets it's keyboard events
     window.push_handlers(player)
 
     # the other controller is the AsteroidSpammer
     # whose task is to spam Asteroids
-    asteroid_spammer = AsteroidSpammer(world, win_size)
+    asteroid_spammer = AsteroidSpammer(world, win_size, view)
 
     @world.collision_handler(Asteroid, Bullet)
     def begin(arbiter, space, data):
@@ -77,11 +75,7 @@ def main():
         window.clear()
         # every view is registered with View
         # so View.draw draws everything
-        View.draw()
-        # do not draw with View.draw
-        # because we loose control if it is draw
-        # over or under other images
-        score_view.draw()
+        view.draw()
 
     # everything that needs to be done continually
     # has to be in this function
@@ -112,8 +106,8 @@ class World:
 
     dispatches events for collision handling
     """
-    def __init__(self, window_size, bounds, score_view):
-        self._time = 0.0
+    def __init__(self, window_size, bounds, view):
+        self._time = time.time()
         self._space = pymunk.Space()
         self._space.gravity = (0, 0)
         self._models = []
@@ -130,8 +124,9 @@ class World:
         # when the game is done
         # switch this boolean
         self._done = False
-        # score view for end of game
-        self._score_view = score_view
+        # world needs the view to display
+        # the score at the end of the game
+        self._view = view
 
     @property
     def done(self):
@@ -141,8 +136,11 @@ class World:
     def done(self, done):
         if self._done:
             return
+        sec = int(time.time()-self._time)
+        text = "You stayed alive for {} seconds".format(sec)
+        self._view.create_label(text, x=self._mid[0], y=self._mid[1],
+                                anchor_x="center", anchor_y="center")
         self._done = done
-        self._score_view.show_score()
 
     def register_model(self, model_type):
         if model_type not in self._collision_handlers:
@@ -209,6 +207,7 @@ class World:
             return
         self._space.step(dt)
         self._delete_out_of_bounds()
+
 
 class Model:
     collision_type = None
@@ -277,8 +276,9 @@ class Player:
     bps: bullets per second
     """
 
-    def __init__(self, world, win_size, bps=6):
+    def __init__(self, world, win_size, view, bps=6):
         self._world = world
+        self._view = view
         # controll  state
         self._rot_left = False
         self._rot_right = False
@@ -293,15 +293,20 @@ class Player:
         self._world.add(self._spaceship, self)
         # the spaceship has two views
         # the normal view and when it is accelerated
-        self._ship_view = SpriteView("images/spaceship.png", scale=0.5)
-        self._ship_accel = SpriteView("images/spaceship_thrust.png", scale=0.5)
+        self._ship_view = "images/spaceship.png"
+        self._ship_accel = "images/spaceship_thrust.png"
+        # the scale is the same for ship_view and accel_view
+        self._scale = 0.5
+        # the zindex is the same too
+        self._zindex = 3
         # ship is currently unaccelerated
-        self._ship_view.register(self._spaceship)
+        self._view.register_model(self._spaceship, self._ship_view,
+                                  scale=self._scale, zindex=self._zindex)
 
         # register for bullets
         self._bullets = []
         # we want to see the bullets
-        self._bullet_view = SpriteView("images/bullet.png")
+        self._bullet_view = "images/bullet.png"
         # time between bullets
         self._bps = 1/bps
         # time sind last bullet
@@ -309,12 +314,8 @@ class Player:
 
     def delete(self, model):
         if type(model) is Bullet:
-            self._bullet_view.remove(model)
+            self._view.remove_model(model)
             self._world.remove(model, self)
-
-    @property
-    def position(self):
-        return tuple(self._spaceship.body.position)
 
     def on_key_press(self, symbol, modifiers):
         """
@@ -329,8 +330,9 @@ class Player:
         elif symbol == key.UP:
             if not self._accels:
                 try:
-                    self._ship_view.remove(self._spaceship)
-                    self._ship_accel.register(self._spaceship)
+                    self._view.remove_model(self._spaceship)
+                    self._view.register_model(self._spaceship, self._ship_accel,
+                                              scale=self._scale, zindex=self._zindex)
                 except KeyError:
                     pass
             self._accels = True
@@ -349,8 +351,9 @@ class Player:
         elif symbol == key.UP:
             if self._accels:
                 try:
-                    self._ship_accel.remove(self._spaceship)
-                    self._ship_view.register(self._spaceship)
+                    self._view.remove_model(self._spaceship)
+                    self._view.register_model(self._spaceship, self._ship_accel,
+                                              scale=self._scale, zindex=self._zindex)
                 except KeyError:
                     pass
             self._accels = False
@@ -372,9 +375,8 @@ class Player:
         x = math.cos(a+rot_offset)*d + shippos.x
         y = math.sin(a+rot_offset)*d + shippos.y
         bullet = Bullet((x,y), a, force=100)
-        self._bullet_view.register(bullet)
+        self._view.register_model(bullet, self._bullet_view)
         self._world.add(bullet, self)
-
 
     def step(self, dt):
         """
@@ -419,8 +421,9 @@ class AsteroidSpammer:
     max_rot: offset for where to apply the initial force on the asteroid
     aps: asteroids per second (how many asteroids per second to spam ~)
     """
-    def __init__(self, world, screen_size, screen_offset=150, max_accel=2500, max_rot=150, aps=3):
+    def __init__(self, world, screen_size, view, screen_offset=150, max_accel=2500, max_rot=150, aps=3):
         self._world = world
+        self._view = view
         # circle around the screen
         # where asteroids may be created
         self._radius = math.hypot(*screen_size)/2+screen_offset
@@ -437,7 +440,9 @@ class AsteroidSpammer:
         self._last_asteroid = 0
         # asteroids register and view
         self._asteroids = []
-        self._asteroid_view = SpriteView("images/asteroid.png", scale=0.6)
+        self._asteroid_view = "images/asteroid.png"
+        self._scale = 0.6
+        self._zindex = 2
 
     def _create_asteroid(self):
         # direction from the ship, where
@@ -462,7 +467,8 @@ class AsteroidSpammer:
         # register the asteroid
         self._asteroids.append(asteroid)
         # make asteroid visible
-        self._asteroid_view.register(asteroid)
+        self._view.register_model(asteroid, self._asteroid_view,
+                                  scale=self._scale, zindex=self._zindex)
 
     def step(self, dt):
         # create new asteroids if it is time
@@ -475,143 +481,96 @@ class AsteroidSpammer:
     def delete(self, model):
         self._world.remove(model, self)
         self._asteroids.remove(model)
-        self._asteroid_view.remove(model)
+        self._view.remove_model(model)
         # we could spawn smaller asteroids here :)
-
-
-class View:
-    """
-    register for all the views
-    makes drawing really easy
-    """
-    _view_register = []
-
-    def __init__(self):
-        self._view_register.append(self)
-
-    @classmethod
-    def draw(self):
-        for view in self._view_register:
-            view.draw()
 
 class View:
     """
     handles everything graphical
     """
-    # map of all loaded and modified images
-    _image_map = {}
-    # maps models to sprites for updating
-    _model2sprite = {}
-    # groups for drawing order
-    _draw_groups = {}
-    # we only need one batch
-    _batch = Batch()
 
-    @classmethod
-    def _get_group(cls, zindex):
+    def __init__(self):
+        # map of all loaded and modified images
+        self._image_map = {}
+        # maps models to sprites for updating
+        self._model2sprite = {}
+        # groups for drawing order
+        self._draw_groups = {}
+        # we only need one batch
+        self._batch = Batch()
+
+    def _get_group(self, zindex):
+        """
+        zindex: drawing order within batch
+        """
         # zindex must be an integer
         assert type(zindex) is int
         # create group if it does not exist
-        if zindex not in cls._draw_groups:
-            cls._draw_groups[zindex] = OrderedGroup(zindex)
-        return cls._draw_groups[zindex]
+        if zindex not in self._draw_groups:
+            self._draw_groups[zindex] = OrderedGroup(zindex)
+        return self._draw_groups[zindex]
 
-    @classmethod
-    def _get_img(cls, path, scale):
-        # return value or create {} and return
-        imdct = cls._image_map.setdefault(path, {})
-        # create scaled image if it does not exist
-        if scale not in imdct:
-            imdct[scale] = pyglet.image.load(path)
-            imdct[scale].anchor_x = imdct[scale].width//2
-            imdct[scale].anchor_y = imdct[scale].width//2
-            imdct[scale].scale = scale
-        return imdct[scale]
+    def _get_img(self, path):
+        """
+        path: path to image
+        """
+        # create image if it does not exist
+        if path not in self._image_map:
+            img = pyglet.image.load(path)
+            img.anchor_x = img.width//2
+            img.anchor_y = img.height//2
+            self._image_map[path] = img
+        return self._image_map[path]
 
-    @classmethod
-    def register_model(cls, model, path, scale=1.0, zindex=1):
+    def register_model(self, model, path, scale=1.0, zindex=1):
+        """
+        model: the model behind the image
+        path: path to the image
+        scale: scale of the image
+        zindex: lower is drawn in the back higher in the front
+        """
         # position of model is the position of the image
         x,y = model.body.position
-        img = cls._get_img(path, scale)
-        group = cls._get_group(zindex)
-        cls._model2sprite[model] = Sprite(img, x, y, group=group, batch=cls._batch)
+        img = self._get_img(path)
+        group = self._get_group(zindex)
+        sprite = Sprite(img, x, y, group=group, batch=self._batch)
+        sprite.scale = scale
+        self._model2sprite[model] = sprite
 
-    @classmethod
-    def remove_model(cls, model):
-        cls._model2sprite[model].delete()
+    def remove_model(self, model):
+        """
+        remove sprite registered with model
+        """
+        self._model2sprite[model].delete()
+        del self._model2sprite[model]
 
-    @classmethod
-    def create_label(cls, text, zindex=9, **kwargs):
+    def create_label(self, text, zindex=9, **kwargs):
+        """
+        creates a text label in the Batch of the View
+        text: text wich shall be visualized
+        zindex: drawing order
+        kwargs: additional parameters for pyglet.text.Label
+        -- call delete on the returned label to remove
+        -- from batch
+        """
         kwargs['text'] = text
-        kwargs['group'] = cls._get_group(zindex)
-        kwargs['batch'] = cls._batch
+        kwargs['group'] = self._get_group(zindex)
+        kwargs['batch'] = self._batch
         # the label may be destroyed at the whim of the controller
         return pyglet.text.Label(**kwargs)
 
-    @classmethod
-    def _update_models(cls):
+    def _update_models(self):
         # update sprites with new positional and rotational data
         for m,s in self._model2sprite.items():
             x,y = m.body.position
-            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180, scale=self._scale)
-
-    @classmethod
-    def draw(cls):
-        cls._update_models()
-        cls._batch.draw()
-
-
-class SpriteView(View):
-    def __init__(self, img_path, scale=1.0):
-        View.__init__(self)
-        self._image = pyglet.image.load(img_path)
-        self._image.anchor_x = self._image.width//2
-        self._image.anchor_y = self._image.height//2
-        self._scale = scale
-        self._model_map = {}
-        self._batch = Batch()
-
-    def register(self, model):
-        x,y = model.body.position
-        self._model_map[model] = Sprite(self._image, x, y, batch=self._batch)
-
-    def remove(self, model):
-        self._model_map[model].delete()
-        del self._model_map[model]
+            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180)
 
     def draw(self):
-        for m,s in self._model_map.items():
-            x,y = m.body.position
-            s.update(x=x, y=y, rotation=-m.body.angle/math.pi*180, scale=self._scale)
+        self._update_models()
         self._batch.draw()
 
-class ScoreView:
-    """
-    the score view is a little different than
-    the other views, because i want a little more
-    controll over where it is and when it is drawn
-    """
-    def __init__(self, screen_size):
-        self._x = screen_size[0]/2
-        self._y = screen_size[1]/2
-        self._label = None
-        self._time = time.time()
 
-    def show_score(self):
-        duration = int(time.time() - self._time)
-        text = "You survived for {} seconds".format(duration)
-        self._label = pyglet.text.Label(
-            text, 
-            font_size=36,
-            x=self._x,
-            y=self._y,
-            anchor_x='center',
-            anchor_y='center')
 
-    def draw(self):
-        if self._label:
-            gl.glLoadIdentity()
-            self._label.draw()
 
 if __name__ == "__main__":
     main()
