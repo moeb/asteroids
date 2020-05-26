@@ -391,7 +391,7 @@ class Player(Controller):
             if self._accels:
                 try:
                     self._view.remove_model(self._spaceship)
-                    self._view.register_model(self._spaceship, self._ship_accel,
+                    self._view.register_model(self._spaceship, self._ship_view,
                                               scale=self._scale, zindex=self._zindex)
                 except KeyError:
                     pass
