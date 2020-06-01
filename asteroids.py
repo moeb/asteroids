@@ -9,10 +9,12 @@ from abc import ABC, abstractmethod, abstractproperty
 import pymunk
 import pyglet
 from pyglet import gl
+from pyglet import font
 from pyglet.window import key
 from pyglet.graphics import Batch
 from pyglet.graphics import OrderedGroup
 from pyglet.sprite import Sprite
+
 
 def main():
     # the entry point of the game
@@ -24,8 +26,13 @@ def main():
     win_size = (width, height)
     # bounds in wich objects may exist
     bounds = math.hypot(*win_size)/2 + 300
+    
+    # load font for displaying score
+    # (necessary on windows)
+    font.add_file('fonts/Starjout.ttf')
+    
     # create a window; opengl context inclusive
-    window = pyglet.window.Window(*win_size);
+    window = pyglet.window.Window(*win_size)
 
     # handlesthe displaying of images and text
     view = View()
@@ -167,7 +174,8 @@ class World:
             return
         sec = int(time.time()-self._time)
         text = "You stayed alive for {} seconds".format(sec)
-        self._view.create_label(text, x=self._mid[0], y=self._mid[1],
+        self._view.create_label(text, font_name="Starjout", font_size=36,
+                                x=self._mid[0], y=self._mid[1],
                                 anchor_x="center", anchor_y="center")
         self._done = done
 

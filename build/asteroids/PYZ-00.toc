@@ -1,0 +1,1 @@
+('C:\\Users\\bmoe\\Desktop\\asteroids\\build\\asteroids\\PYZ-00.pyz', [])
